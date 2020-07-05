@@ -1,90 +1,106 @@
-package io.github.terra121;
+package io.github.terra121.control;
 
-import org.apache.logging.log4j.Logger;
-
-import io.github.terra121.control.TerraTeleport;
-import io.github.terra121.control.TerraCommand;
-import io.github.terra121.provider.EarthWorldProvider;
-import io.github.terra121.provider.GenerationEventDenier;
-import io.github.terra121.provider.WaterDenier;
-import net.minecraft.world.DimensionType;
-import net.minecraftforge.common.DimensionManager;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.fml.common.Loader;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.common.Mod.EventHandler;
-import net.minecraftforge.fml.common.event.FMLInitializationEvent;
-import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
-import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
-import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
-
-import net.minecraftforge.server.permission.DefaultPermissionLevel;
+import io.github.opencubicchunks.cubicchunks.api.worldgen.ICubeGenerator;
+import io.github.opencubicchunks.cubicchunks.core.server.CubeProviderServer;
+import io.github.terra121.EarthTerrainProcessor;
+import net.minecraft.command.CommandBase;
+import net.minecraft.command.CommandException;
+import net.minecraft.command.WrongUsageException;
+import net.minecraft.command.CommandTP;
+import net.minecraft.command.ICommandSender;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.text.TextComponentString;
+import net.minecraft.world.World;
+import net.minecraft.world.chunk.IChunkProvider;
+// allow command usage via the permission node terra121.commands.tpll
 import net.minecraftforge.server.permission.PermissionAPI;
+import net.minecraft.entity.player.EntityPlayer;
 
-import io.github.terra121.letsencryptcraft.ILetsEncryptMod;
-import io.github.terra121.letsencryptcraft.LetsEncryptAdder;
+public class TerraTeleport extends CommandBase {
 
-@Mod(modid = TerraMod.MODID, name = TerraMod.NAME, version = TerraMod.VERSION, dependencies = "required-after:cubicchunks; required-after:cubicgen", acceptableRemoteVersions="*")
-public class TerraMod implements ILetsEncryptMod
-{
-    public static final String MODID = "terra121";
-    public static final String NAME = "Terra 1 to 1";
-    public static final String VERSION = "0.1";
-    public static final String USERAGENT = TerraMod.MODID+"/"+TerraMod.VERSION;
-    public static final boolean CUSTOM_PROVIDER = false; //could potentially interfere with other mods and is relatively untested, leaving off for now
-
-    public static Logger LOGGER;
-
-    @EventHandler
-    public void preInit(FMLPreInitializationEvent event)
-    {
-        LOGGER = event.getModLog();
-        EarthWorldType.create();
-        
-        if(CUSTOM_PROVIDER) {
-	        setupProvider();
-        }
-    }
-
-    @EventHandler
-    public void init(FMLInitializationEvent event)
-    {
-    	MinecraftForge.TERRAIN_GEN_BUS.register(GenerationEventDenier.class);
-    	MinecraftForge.EVENT_BUS.register(WaterDenier.class);
-        MinecraftForge.EVENT_BUS.register(TerraConfig.class);
-	PermissionAPI.registerNode("terra121.commands.tpll", DefaultPermissionLevel.OP, "Allows a player to do /tpll");
-    }
-    
-    @EventHandler
-    public void postInit(FMLPostInitializationEvent event) {
-        if(!Loader.isModLoaded("letsencryptcraft"))
-            LetsEncryptAdder.doStuff(this);
-    }
-    
-    @EventHandler
-    public void serverLoad(FMLServerStartingEvent event) {
-        event.registerServerCommand(new TerraTeleport());
-        event.registerServerCommand(new TerraCommand());
-    }
-    
-    //set custom provider
-    private static void setupProvider() {
-		DimensionType type = DimensionType.register("earth", "_earth", 0, EarthWorldProvider.class, true);
-        DimensionManager.init();
-        DimensionManager.unregisterDimension(0);
-        DimensionManager.registerDimension(0, type);
+	@Override
+	public String getName() {
+		return "tpll";
 	}
 
-	//stuff to implement ILetsEncryptMod
-    public void info(String log) {
-        LOGGER.info(log);
-    }
+	@Override
+	public String getUsage(ICommandSender sender) {
+		return "terra121.commands.tpll.usage";
+	}
 
-    public void error(String log) {
-        LOGGER.error(log);
-    }
+	public int getRequiredPermissionLevel() {
+		return 2;
+	}
 
-    public void error(String log, Throwable t) {
-        LOGGER.error(log, t);
-    }
+	@Override
+	public void execute(MinecraftServer server, ICommandSender sender, String[] args) throws CommandException {
+		if(isOp(sender)) {
+
+			World world = sender.getEntityWorld();
+			IChunkProvider cp = world.getChunkProvider();
+
+			if(!(cp instanceof CubeProviderServer)) {
+				throw new CommandException("terra121.error.notcc", new Object[0]);
+			}
+
+			ICubeGenerator gen = ((CubeProviderServer)cp).getCubeGenerator();
+
+			if(!(gen instanceof EarthTerrainProcessor)) {
+				throw new CommandException("terra121.error.notterra", new Object[0]);
+			}
+
+			EarthTerrainProcessor terrain = (EarthTerrainProcessor)gen;
+
+			if(args.length==0)
+				throw new WrongUsageException(getUsage(sender), new Object[0]);
+
+			String[] splitCoords = args[0].split(",");
+			String alt = null;
+			if(splitCoords.length==2&&args.length<3) { // lat and long in single arg
+				if(args.length>1) alt = args[1];
+				args = splitCoords;
+			} else if(args.length==3) {
+				alt = args[2];
+			}
+			if(args[0].endsWith(","))
+				args[0] = args[0].substring(0, args[0].length() - 1);
+			if(args[0].endsWith("\u00B0"))
+				args[0] = args[0].substring(0, args[0].length() - 1);
+			if(args.length>1) {
+				if(args[1].endsWith(","))
+					args[1] = args[1].substring(0, args[1].length() - 1);
+				if(args[1].endsWith("\u00B0"))
+					args[1] = args[1].substring(0, args[1].length() - 1);
+			}
+			if(args.length!=2&&args.length!=3) {
+				throw new WrongUsageException(getUsage(sender), new Object[0]);
+			}
+
+			double lon, lat;
+
+			try {
+				lat = Double.parseDouble(args[0]);
+				lon = Double.parseDouble(args[1]);
+				if(alt!=null) alt = Double.toString(Double.parseDouble(alt));
+			} catch(Exception e) {
+				throw new CommandException("terra121.error.numbers", new Object[0]);
+			}
+
+			double proj[] = terrain.projection.fromGeo(lon, lat);
+
+			if(alt==null)
+				alt = String.valueOf(terrain.heights.estimateLocal(lon, lat)+1);
+
+			new CommandTP().execute(server, sender, new String[] {
+				String.valueOf(proj[0]), alt, String.valueOf(proj[1])});
+		}
+	}
+	
+	private boolean isOp(ICommandSender sender) {
+		if (sender instanceof EntityPlayer) {
+			return PermissionAPI.hasPermission((EntityPlayer) sender, "terra121.commands.tpll");
+		}
+		return sender.canUseCommand(2, "");
+	}
+
 }
